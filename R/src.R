@@ -202,7 +202,7 @@ parse_dependencies <- function(depends_jar_path,git_repo_path,language,output_di
           stdout = FALSE,
           stderr = FALSE)
   # Construct /output_dir/ file path
-  output_path <- stri_c(output_dir, project_name,".json")
+  output_path <- stri_c(output_dir, project_name,"-file.json")
   # Parsed JSON output.
   depends_parsed <- jsonlite::read_json(output_path)
   # The JSON has two main parts. The first is a vector of all file names.
@@ -431,9 +431,10 @@ transform_dependencies_to_network <- function(depends_parsed,weight_types=NA){
   nodes <- depends_parsed[["nodes"]]
   edgelist <- depends_parsed[["edgelist"]]
 
+  use_all_types <- any(is.na(weight_types))
   weight_types <- intersect(names(edgelist)[3:ncol(edgelist)],weight_types)
-  dependency_edgelist <- edgelist[,.(src_filepath,dest_filepath)]
-  if(any(is.na(weight_types))){
+  dependency_edgelist <- copy(edgelist)
+  if(use_all_types){
     dependency_edgelist$weight <- rowSums(edgelist[,3:ncol(edgelist),with=FALSE])
   }else{
     dependency_edgelist$weight <- rowSums(edgelist[,weight_types,with=FALSE])
@@ -443,17 +444,18 @@ transform_dependencies_to_network <- function(depends_parsed,weight_types=NA){
   setnames(dependency_edgelist,
            old=c("src_filepath","dest_filepath"),
            new=c("from","to"))
-  # Select relevant columns for nodes
-  dependency_nodes <- nodes
-  setnames(x=dependency_nodes,
-           old="filepath",
-           new="name")
-  # Color files yellow
-  dependency_nodes <- data.table(name=dependency_nodes$name,color="#f4dbb5")
-  # Return the parsed JSON output as nodes and edgelist.
-  file_network <- list()
+  # Build directed graph
+  file_network <- model_directed_graph(dependency_edgelist,
+                                       is_bipartite = FALSE,
+                                       color = "#f4dbb5",
+                                       aggregate_duplicate = FALSE)
+  # Replace node list with the complete set of files from Depends,
+  # preserving all files including those with no edges after filtering.
+  dependency_nodes <- copy(nodes)
+  setnames(dependency_nodes, old="filepath", new="name")
+  dependency_nodes$type <- FALSE
+  dependency_nodes$color <- "#f4dbb5"
   file_network[["nodes"]] <- dependency_nodes
-  file_network[["edgelist"]] <- dependency_edgelist
   return(file_network)
 }
 #' Transform parsed R dependencies into a graph
